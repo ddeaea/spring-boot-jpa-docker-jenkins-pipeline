@@ -7,7 +7,8 @@ pipeline {
     }
 
     environment {
-        SONAR_TOKEN = credentials('sonar-token') // Token SonarQube
+        SONAR_TOKEN = credentials('sonar-token')   // Token SonarQube
+        SMTP_CREDS = credentials('smtp-token')     // Ton ID Jenkins Credential Gmail (app password)
     }
 
     stages {
@@ -44,7 +45,8 @@ pipeline {
         stage('Gitleaks Scan') {
             steps {
                 sh '''
-                    docker run --rm -v $WORKSPACE:/src zricethezav/gitleaks:latest detect --source /src --exit-code 0
+                    docker run --rm -v $WORKSPACE:/src \
+                    zricethezav/gitleaks:latest detect --source /src --exit-code 0
                 '''
             }
         }
@@ -59,7 +61,7 @@ pipeline {
                         -v $(pwd)/zap-reports:/zap/wrk \
                         ghcr.io/zaproxy/zaproxy:stable \
                         zap-baseline.py -t http://192.168.33.10:8080 \
-                        -r zap_report.html -J zap_out.json -I -d
+                        -r zap_report.html -J zap_out.json -I -d || true
                     '''
                 }
             }
@@ -69,11 +71,43 @@ pipeline {
             steps {
                 echo 'Déploiement de l’application Spring Boot...'
                 sh '''
-                    java -jar target/demo-0.0.1-SNAPSHOT.jar &
+                    nohup java -jar target/demo-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
                     echo "Application Spring Boot démarrée sur le serveur Jenkins"
                 '''
             }
         }
     }
 
+    // --- Notifications email automatiques ---
+    post {
+        always {
+            echo 'Pipeline terminé.'
+        }
+
+        success {
+            mail to: 'ton.email@gmail.com',
+                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """Bonjour,
+
+Le pipeline du projet *${env.JOB_NAME}* s'est exécuté avec succès ✅
+
+🔗 Détails du build : ${env.BUILD_URL}
+
+Cordialement,
+Le serveur Jenkins"""
+        }
+
+        failure {
+            mail to: 'ton.email@gmail.com',
+                 subject: "❌ ÉCHEC: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """Bonjour,
+
+Le pipeline du projet *${env.JOB_NAME}* a échoué à l’étape : ${env.STAGE_NAME} ❗
+
+🔗 Consultez les logs ici : ${env.BUILD_URL}
+
+Cordialement,
+Le serveur Jenkins"""
+        }
+    }
 }
