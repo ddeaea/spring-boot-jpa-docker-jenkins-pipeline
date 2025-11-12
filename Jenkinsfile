@@ -8,7 +8,7 @@ def readPom
 // here, it should be your repository name which you created in docker hub
 def repository = "spring-boot-jpa-docker-jenkins-pipeline"
 
-// docker hub user id (here, it should be your docker user id)
+
 def userId = "yewin1"
 
 // below variable is imageName which we will get from `artifactId` of `pom.xml` file which we will use in docker build and push
