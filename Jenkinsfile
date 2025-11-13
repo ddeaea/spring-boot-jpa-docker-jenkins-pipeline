@@ -85,7 +85,7 @@ pipeline {
         }
 
         success {
-            mail to: 'ton.email@gmail.com',
+            mail to: 'khalilsoltani64@gmail.com',
                  subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Bonjour,
 
@@ -98,7 +98,7 @@ Le serveur Jenkins"""
         }
 
         failure {
-            mail to: 'ton.email@gmail.com',
+            mail to: 'khalilsoltani64@gmail.com',
                  subject: "❌ ÉCHEC: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Bonjour,
 
