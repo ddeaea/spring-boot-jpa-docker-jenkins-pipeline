@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         SONAR_TOKEN = credentials('sonar-token')   // Token SonarQube
-        SMTP_CREDS = credentials('smtp-token')     // Ton ID Jenkins Credential Gmail (app password)
+        SMTP_CREDS = credentials('smtp-token')     // Ton ID Jenkins Credential G(app password)
     }
 
     stages {
