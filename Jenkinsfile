@@ -6,8 +6,9 @@ pipeline {
         jdk 'JAVA_HOME'
     }
 
+    // 👇 Add your SMTP credentials (you created this in Jenkins → Credentials)
     environment {
-        SMTP_CREDS = credentials('smtp-token') // Jenkins credential for email
+        SMTP_CREDS = credentials('smtp-token')  // replace with your actual credential ID
     }
 
     stages {
@@ -29,15 +30,10 @@ pipeline {
             }
         }
 
-        stage('SAST - SonarQube') {
+        stage('SAST - SonarQube Analysis') {
             steps {
-                // Securely inject SonarQube token
                 withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    sh '''
-                        mvn sonar:sonar \
-                        -Dsonar.host.url=http://localhost:9000 \
-                        -Dsonar.token=$SONAR_TOKEN
-                    '''
+                    sh 'mvn sonar:sonar -Dsonar.host.url=http://localhost:9000 -Dsonar.login=$SONAR_TOKEN'
                 }
             }
         }
@@ -51,8 +47,7 @@ pipeline {
         stage('Gitleaks Scan') {
             steps {
                 sh '''
-                    docker run --rm -v $WORKSPACE:/src \
-                    zricethezav/gitleaks:latest detect --source /src --exit-code 0
+                    docker run --rm -v $WORKSPACE:/src zricethezav/gitleaks:latest detect --source /src --exit-code 0
                 '''
             }
         }
@@ -67,7 +62,7 @@ pipeline {
                         -v $(pwd)/zap-reports:/zap/wrk \
                         ghcr.io/zaproxy/zaproxy:stable \
                         zap-baseline.py -t http://192.168.33.10:8080 \
-                        -r zap_report.html -J zap_out.json -I -d || true
+                        -r zap_report.html -J zap_out.json -I -d
                     '''
                 }
             }
@@ -77,44 +72,46 @@ pipeline {
             steps {
                 echo 'Déploiement de l’application Spring Boot...'
                 sh '''
-                    nohup java -jar target/demo-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
+                    java -jar target/demo-0.0.1-SNAPSHOT.jar &
                     echo "Application Spring Boot démarrée sur le serveur Jenkins"
                 '''
             }
         }
     }
 
-    // --- Notifications email automatiques ---
     post {
         always {
-            echo 'Pipeline terminé.'
+            echo 'Pipeline terminé !'
         }
 
+        // ✅ Email on success
         success {
-            mail to: 'khalilsoltani64@gmail.com',
-                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            mail to: 'your.email@example.com',
+                 subject: "✅ Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Bonjour,
 
-Le pipeline du projet *${env.JOB_NAME}* s'est exécuté avec succès ✅
+Le pipeline du projet *${env.JOB_NAME}* s'est exécuté avec succès.
 
-🔗 Détails du build : ${env.BUILD_URL}
+➡️ Détails du build : ${env.BUILD_URL}
 
 Cordialement,
-Le serveur Jenkins"""
+Le serveur Jenkins""",
+                 replyTo: "${env.SMTP_CREDS_USR}"
         }
 
+        // ⚠️ Email on failure
         failure {
-            mail to: 'khalilsoltani64@gmail.com',
-                 subject: "❌ ÉCHEC: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            mail to: 'your.email@example.com',
+                 subject: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Bonjour,
 
-Le pipeline du projet *${env.JOB_NAME}* a échoué à l’étape : ${env.STAGE_NAME} ❗
+Le pipeline du projet *${env.JOB_NAME}* a échoué à l’étape : ${env.STAGE_NAME}.
 
-🔗 Consultez les logs ici : ${env.BUILD_URL}
+➡️ Consultez les logs : ${env.BUILD_URL}
 
 Cordialement,
-Le serveur Jenkins"""
+Le serveur Jenkins""",
+                 replyTo: "${env.SMTP_CREDS_USR}"
         }
     }
 }
-
