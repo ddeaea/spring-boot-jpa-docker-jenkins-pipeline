@@ -7,8 +7,7 @@ pipeline {
     }
 
     environment {
-        SONAR_TOKEN = credentials('sonar-token')   // Token SonarQube
-        SMTP_CREDS = credentials('smtp-token')     // Ton ID Jenkins Credential G(app password)
+        SMTP_CREDS = credentials('smtp-token') // Jenkins credential for email
     }
 
     stages {
@@ -32,7 +31,14 @@ pipeline {
 
         stage('SAST - SonarQube') {
             steps {
-                sh "mvn sonar:sonar -Dsonar.host.url=http://localhost:9000 -Dsonar.login=${SONAR_TOKEN}"
+                // Securely inject SonarQube token
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    sh '''
+                        mvn sonar:sonar \
+                        -Dsonar.host.url=http://localhost:9000 \
+                        -Dsonar.token=$SONAR_TOKEN
+                    '''
+                }
             }
         }
 
@@ -111,3 +117,4 @@ Le serveur Jenkins"""
         }
     }
 }
+
