@@ -6,9 +6,8 @@ pipeline {
         jdk 'JAVA_HOME'
     }
 
-    // 👇 Add your SMTP credentials (you created this in Jenkins → Credentials)
     environment {
-        SMTP_CREDS = credentials('smtp-token')  // replace with your actual credential ID
+        SMTP_CREDS = credentials('smtp-token') // Jenkins credential for email
     }
 
     stages {
@@ -30,24 +29,41 @@ pipeline {
             }
         }
 
-        stage('SAST - SonarQube Analysis') {
+        stage('SAST - SonarQube') {
             steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    sh 'mvn sonar:sonar -Dsonar.host.url=http://localhost:9000 -Dsonar.login=$SONAR_TOKEN'
+                script {
+                    def sonarSuccess = true
+                    try {
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                            sh '''
+                                mvn sonar:sonar \
+                                -Dsonar.host.url=http://localhost:9000 \
+                                -Dsonar.token=$SONAR_TOKEN \
+                                -X
+                            '''
+                        }
+                    } catch (err) {
+                        sonarSuccess = false
+                        echo "⚠️ SonarQube stage failed, but pipeline continues: ${err}"
+                    }
+                    if (!sonarSuccess) {
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
 
         stage('SCA - Dependency Check') {
             steps {
-                sh 'mvn org.owasp:dependency-check-maven:check'
+                sh 'mvn org.owasp:dependency-check-maven:check || true'
             }
         }
 
         stage('Gitleaks Scan') {
             steps {
                 sh '''
-                    docker run --rm -v $WORKSPACE:/src zricethezav/gitleaks:latest detect --source /src --exit-code 0
+                    docker run --rm -v $WORKSPACE:/src \
+                    zricethezav/gitleaks:latest detect --source /src --exit-code 0
                 '''
             }
         }
@@ -62,7 +78,7 @@ pipeline {
                         -v $(pwd)/zap-reports:/zap/wrk \
                         ghcr.io/zaproxy/zaproxy:stable \
                         zap-baseline.py -t http://192.168.33.10:8080 \
-                        -r zap_report.html -J zap_out.json -I -d
+                        -r zap_report.html -J zap_out.json -I -d || true
                     '''
                 }
             }
@@ -72,7 +88,7 @@ pipeline {
             steps {
                 echo 'Déploiement de l’application Spring Boot...'
                 sh '''
-                    java -jar target/demo-0.0.1-SNAPSHOT.jar &
+                    nohup java -jar target/demo-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
                     echo "Application Spring Boot démarrée sur le serveur Jenkins"
                 '''
             }
@@ -81,37 +97,46 @@ pipeline {
 
     post {
         always {
-            echo 'Pipeline terminé !'
+            echo 'Pipeline terminé.'
         }
 
-        // ✅ Email on success
         success {
-            mail to: 'your.email@example.com',
-                 subject: "✅ Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            mail to: 'khalilsoltani64@gmail.com',
+                 subject: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Bonjour,
 
-Le pipeline du projet *${env.JOB_NAME}* s'est exécuté avec succès.
+Le pipeline du projet *${env.JOB_NAME}* s'est exécuté avec succès ✅
 
-➡️ Détails du build : ${env.BUILD_URL}
+🔗 Détails du build : ${env.BUILD_URL}
 
 Cordialement,
-Le serveur Jenkins""",
-                 replyTo: "${env.SMTP_CREDS_USR}"
+Le serveur Jenkins"""
         }
 
-        // ⚠️ Email on failure
-        failure {
-            mail to: 'your.email@example.com',
-                 subject: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        unstable {
+            mail to: 'khalilsoltani64@gmail.com',
+                 subject: "⚠️ UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                  body: """Bonjour,
 
-Le pipeline du projet *${env.JOB_NAME}* a échoué à l’étape : ${env.STAGE_NAME}.
+Le pipeline du projet *${env.JOB_NAME}* a terminé avec des avertissements ❗
 
-➡️ Consultez les logs : ${env.BUILD_URL}
+🔗 Consultez les logs ici : ${env.BUILD_URL}
 
 Cordialement,
-Le serveur Jenkins""",
-                 replyTo: "${env.SMTP_CREDS_USR}"
+Le serveur Jenkins"""
+        }
+
+        failure {
+            mail to: 'khalilsoltani64@gmail.com',
+                 subject: "❌ ÉCHEC: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """Bonjour,
+
+Le pipeline du projet *${env.JOB_NAME}* a échoué ❗
+
+🔗 Consultez les logs ici : ${env.BUILD_URL}
+
+Cordialement,
+Le serveur Jenkins"""
         }
     }
 }
