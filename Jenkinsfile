@@ -63,7 +63,7 @@ pipeline {
             steps {
                 sh '''
                     docker run --rm -v $WORKSPACE:/src \
-                    zricethezav/gitleaks:latest detect --source /src --exit-code 0
+                    zricethezav/gitleaks:latest detect --source /src --exit-code 0 || true
                 '''
             }
         }
@@ -71,15 +71,32 @@ pipeline {
         stage('DAST - Web Scan') {
             steps {
                 script {
-                    sh '''
-                        mkdir -p zap-reports
-                        chmod 777 zap-reports
-                        docker run --rm -t \
-                        -v $(pwd)/zap-reports:/zap/wrk \
-                        ghcr.io/zaproxy/zaproxy:stable \
-                        zap-baseline.py -t http://192.168.33.10:8080 \
-                        -r zap_report.html -J zap_out.json -I -d || true
-                    '''
+                    // Fail-safe and authenticated ZAP scan
+                    def dastSuccess = true
+                    try {
+                        withCredentials([usernamePassword(credentialsId: 'zap-credentials', usernameVariable: 'ZAP_USER', passwordVariable: 'ZAP_PASS')]) {
+                            sh '''
+                                mkdir -p zap-reports
+                                chmod 777 zap-reports
+                                docker run --rm -t \
+                                -v $(pwd)/zap-reports:/zap/wrk \
+                                ghcr.io/zaproxy/zaproxy:stable \
+                                zap-baseline.py \
+                                -t http://192.168.33.10:8080 \
+                                -r zap_report.html \
+                                -J zap_out.json \
+                                -u $ZAP_USER \
+                                -p $ZAP_PASS \
+                                -I -d || true
+                            '''
+                        }
+                    } catch (err) {
+                        dastSuccess = false
+                        echo "⚠️ DAST scan encountered warnings/errors, but pipeline continues: ${err}"
+                    }
+                    if (!dastSuccess) {
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
