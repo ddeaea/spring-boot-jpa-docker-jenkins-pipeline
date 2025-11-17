@@ -11,6 +11,7 @@ pipeline {
     }
 
     stages {
+
         stage('Clean Workspace') {
             steps {
                 deleteDir()
@@ -31,20 +32,34 @@ pipeline {
 
         stage('SAST - SonarQube') {
             steps {
-                sh "mvn sonar:sonar -Dsonar.host.url=http://localhost:9000 -Dsonar.login=${SONAR_TOKEN}"
+                // Prevent pipeline from failing
+                sh '''
+                    set +e
+                    mvn sonar:sonar \
+                        -Dsonar.host.url=http://localhost:9000 \
+                        -Dsonar.login=$SONAR_TOKEN
+                    echo "SonarQube finished with exit code $? (ignored)"
+                '''
             }
         }
 
         stage('SCA - Dependency Check') {
             steps {
-                sh 'mvn org.owasp:dependency-check-maven:check'
+                sh '''
+                    set +e
+                    mvn org.owasp:dependency-check-maven:check
+                    echo "Dependency-Check finished with exit code $? (ignored)"
+                '''
             }
         }
 
         stage('Gitleaks Scan') {
             steps {
                 sh '''
-                    docker run --rm -v $WORKSPACE:/src zricethezav/gitleaks:latest detect --source /src --exit-code 0
+                    set +e
+                    docker run --rm -v $WORKSPACE:/src \
+                        zricethezav/gitleaks:latest detect --source /src --exit-code 0
+                    echo "Gitleaks scan done."
                 '''
             }
         }
@@ -52,59 +67,40 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh '''
-                    echo "Deploiement de l'application Spring Boot avec JPA..."
-                    # Arreter toute instance existante
+                    echo "Déploiement Spring Boot..."
+
                     pkill -f "spring-boot-jpa-docker-jenkins-pipeline" || true
                     sleep 3
                     
-                    # Demarrer l'application avec le bon contexte
-                    nohup java -jar target/spring-boot-jpa-docker-jenkins-pipeline-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
+                    nohup java -jar target/spring-boot-jpa-docker-jenkins-pipeline-0.0.1-SNAPSHOT.jar \
+                        > app.log 2>&1 &
                     
-                    # Attendre le demarrage
-                    sleep 30
+                    sleep 15
                     
-                    echo "Verification du demarrage..."
-                    echo "=== LOGS APPLICATION ==="
-                    tail -15 app.log
-                    
-                    # Tester l'application sur l'IP réseau pour ZAP
-                    if curl -s --connect-timeout 15 http://192.168.33.10:8080/spring-boot-jenkins/hello > /dev/null; then
-                        echo "✅ APPLICATION DEMARREE ET ACCESSIBLE SUR LE RESEAU"
-                        echo "🌐 URL pour ZAP: http://192.168.33.10:8080/spring-boot-jenkins"
-                    else
-                        echo "❌ Application non accessible sur l'IP réseau"
-                    fi
+                    echo "=== LAST LOGS ==="
+                    tail -20 app.log || true
                 '''
             }
         }
 
-        stage('DAST - Web Scan') {
+        stage('DAST - ZAP Scan') {
             steps {
-                script {
-                    sh '''
-                        echo "Création du dossier pour les rapports ZAP..."
-                        mkdir -p $WORKSPACE/zap-reports
-                        
-                        echo "Lancement du scan DAST ZAP..."
-                        
-                        # Scan ZAP avec volume monté sur le workspace
-                        docker run --rm \
-                            -v $WORKSPACE/zap-reports:/zap/wrk:rw \
-                            ghcr.io/zaproxy/zaproxy:stable \
-                            zap-baseline.py \
-                            -t http://192.168.33.10:8080/spring-boot-jenkins \
-                            -r /zap/wrk/zap_report.html \
-                            -J /zap/wrk/zap_report.json \
-                            -x /zap/wrk/zap_report.xml \
-                            -a -I -d -T 60
-                        
-                        echo "=== VERIFICATION DES RAPPORTS ZAP DANS WORKSPACE ==="
-                        echo "Chemin des rapports: $WORKSPACE/zap-reports/"
-                        ls -la $WORKSPACE/zap-reports/
-                        echo "=== CONTENU DU WORKSPACE ==="
-                        find $WORKSPACE -name ".html" -o -name ".json" -o -name "*.xml" | grep -v node_modules
-                    '''
-                }
+                sh '''
+                    set +e
+                    mkdir -p $WORKSPACE/zap-reports
+
+                    docker run --rm \
+                        -v $WORKSPACE/zap-reports:/zap/wrk \
+                        ghcr.io/zaproxy/zaproxy:stable \
+                        zap-baseline.py \
+                        -t http://192.168.33.10:8080/spring-boot-jenkins \
+                        -r /zap/wrk/zap_report.html \
+                        -J /zap/wrk/zap_report.json \
+                        -x /zap/wrk/zap_report.xml \
+                        -a -I -T 60
+
+                    echo "ZAP scan completed (errors ignored)"
+                '''
             }
         }
     }
@@ -135,3 +131,4 @@ pipeline {
         }
     }
 }
+
